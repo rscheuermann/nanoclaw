@@ -38,6 +38,7 @@ export interface RegisteredGroup {
   trigger: string;
   added_at: string;
   containerConfig?: ContainerConfig;
+  model?: string; // Claude model ID (e.g., 'claude-sonnet-4-6'). Default: CLI default
   requiresTrigger?: boolean; // Default: true for groups, false for solo chats
   isMain?: boolean; // True for the main control group (no trigger, elevated privileges)
 }

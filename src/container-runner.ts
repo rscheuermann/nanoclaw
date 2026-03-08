@@ -39,6 +39,7 @@ export interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   secrets?: Record<string, string>;
+  imageAttachments?: Array<{ relativePath: string; mediaType: string }>;
 }
 
 export interface ContainerOutput {
@@ -98,17 +99,17 @@ function buildVolumeMounts(
       containerPath: '/workspace/group',
       readonly: false,
     });
+  }
 
-    // Global memory directory (read-only for non-main)
-    // Only directory mounts are supported, not file mounts
-    const globalDir = path.join(GROUPS_DIR, 'global');
-    if (fs.existsSync(globalDir)) {
-      mounts.push({
-        hostPath: globalDir,
-        containerPath: '/workspace/global',
-        readonly: true,
-      });
-    }
+  // Global memory directory (read-only for all groups)
+  // Contains CLAUDE.md with assistant identity and shared instructions
+  const globalDir = path.join(GROUPS_DIR, 'global');
+  if (fs.existsSync(globalDir)) {
+    mounts.push({
+      hostPath: globalDir,
+      containerPath: '/workspace/global',
+      readonly: true,
+    });
   }
 
   // Per-group Claude sessions directory (isolated from other groups)
@@ -226,11 +227,17 @@ function readSecrets(): Record<string, string> {
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
+  model?: string,
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // Per-group model override
+  if (model) {
+    args.push('-e', `CLAUDE_CODE_MODEL=${model}`);
+  }
 
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
@@ -269,7 +276,7 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  const containerArgs = buildContainerArgs(mounts, containerName, group.model);
 
   logger.debug(
     {

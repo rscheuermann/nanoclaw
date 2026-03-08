@@ -244,8 +244,12 @@ export function validateMount(
     };
   }
 
-  // Derive containerPath from hostPath basename if not specified
-  const containerPath = mount.containerPath || path.basename(mount.hostPath);
+  // Derive containerPath from hostPath basename if not specified.
+  // Strip /workspace/extra/ prefix if provided as absolute — the prefix is added later.
+  let containerPath = mount.containerPath || path.basename(mount.hostPath);
+  if (containerPath.startsWith('/workspace/extra/')) {
+    containerPath = containerPath.slice('/workspace/extra/'.length);
+  }
 
   // Validate container path (cheap check)
   if (!isValidContainerPath(containerPath)) {
