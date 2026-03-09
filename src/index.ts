@@ -44,6 +44,7 @@ import {
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
+import { readEnvFile } from './env.js';
 import { startIpcWatcher } from './ipc.js';
 import { McpBridge } from './mcp-bridge.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
@@ -662,17 +663,26 @@ async function main(): Promise<void> {
   const mcpBridge = new McpBridge();
   const remindersPath = path.join(
     process.env.HOME || '',
-    'Code/Foundation/mcp-servers/apple-reminders-mcp/.build/release/apple-reminders-mcp',
+    'Code/Foundation/mcp-servers/apple-reminders-mcp/.build/x86_64-apple-macosx/release/apple-reminders-mcp',
   );
   const calendarPath = path.join(
     process.env.HOME || '',
-    'Code/Foundation/mcp-servers/calendar-mcp/.build/release/calendar-mcp',
+    'Code/Foundation/mcp-servers/calendar-mcp/.build/x86_64-apple-macosx/release/calendar-mcp',
   );
   if (fs.existsSync(remindersPath)) {
     mcpBridge.addServer({ name: 'apple-reminders', command: remindersPath });
   }
   if (fs.existsSync(calendarPath)) {
     mcpBridge.addServer({ name: 'calendar', command: calendarPath });
+  }
+  const fastmailEnv = readEnvFile(['FASTMAIL_API_TOKEN']);
+  const fastmailToken = fastmailEnv.FASTMAIL_API_TOKEN;
+  if (fastmailToken) {
+    mcpBridge.addServer({
+      name: 'fastmail',
+      command: '/usr/local/bin/fastmail-mcp-server',
+      env: { FASTMAIL_API_TOKEN: fastmailToken },
+    });
   }
 
   startIpcWatcher({

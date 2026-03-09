@@ -551,6 +551,104 @@ bridgedTool(
   'calendar',
 );
 
+// --- Fastmail email tools ---
+
+bridgedTool(
+  'list_mailboxes',
+  'List all mailboxes (folders) in the email account with unread counts. Start here to discover folders.',
+  {},
+  'fastmail',
+);
+
+bridgedTool(
+  'list_emails',
+  'List emails in a specific mailbox/folder. Returns summaries with ID, from, subject, date, and preview.',
+  {
+    mailbox: z.string().describe("Mailbox name (e.g., 'INBOX', 'Sent', 'Archive') or role (e.g., 'inbox', 'sent', 'drafts', 'trash', 'junk')"),
+    limit: z.number().optional().describe('Maximum number of emails to return (default 25, max 100)'),
+  },
+  'fastmail',
+);
+
+bridgedTool(
+  'get_email',
+  'Get the full content of a specific email by ID. Includes full thread context sorted oldest-first.',
+  {
+    email_id: z.string().describe('The email ID (from list_emails or search_emails)'),
+  },
+  'fastmail',
+);
+
+bridgedTool(
+  'search_emails',
+  'Search emails with flexible filters. Supports date ranges, attachment filtering, unread/flagged status.',
+  {
+    query: z.string().optional().describe('General search — searches subject, body, from, and to'),
+    from: z.string().optional().describe('Search sender address/name'),
+    to: z.string().optional().describe('Search recipient address/name'),
+    cc: z.string().optional().describe('Search CC recipients'),
+    subject: z.string().optional().describe('Search subject line only'),
+    body: z.string().optional().describe('Search email body only'),
+    mailbox: z.string().optional().describe('Limit search to a specific mailbox/folder'),
+    has_attachment: z.boolean().optional().describe('Only emails with attachments'),
+    before: z.string().optional().describe('Emails before this date (YYYY-MM-DD or ISO 8601)'),
+    after: z.string().optional().describe('Emails after this date (YYYY-MM-DD or ISO 8601)'),
+    unread: z.boolean().optional().describe('Only unread emails'),
+    flagged: z.boolean().optional().describe('Only flagged/starred emails'),
+    limit: z.number().optional().describe('Maximum number of results (default 25, max 100)'),
+  },
+  'fastmail',
+);
+
+bridgedTool(
+  'move_email',
+  'Move an email to a different mailbox/folder.',
+  {
+    email_id: z.string().describe('The email ID to move'),
+    target_mailbox: z.string().describe("Target mailbox name (e.g., 'Archive', 'Trash') or role"),
+  },
+  'fastmail',
+);
+
+bridgedTool(
+  'mark_as_read',
+  'Mark an email as read or unread.',
+  {
+    email_id: z.string().describe('The email ID'),
+    read: z.boolean().optional().describe('true to mark read, false to mark unread (default: true)'),
+  },
+  'fastmail',
+);
+
+bridgedTool(
+  'list_attachments',
+  'List all attachments on an email. Returns names, types, sizes, and blob IDs.',
+  {
+    email_id: z.string().describe('The email ID to get attachments from'),
+  },
+  'fastmail',
+);
+
+bridgedTool(
+  'get_attachment',
+  'Download an attachment. Text/documents have text extracted. Images returned as viewable content.',
+  {
+    email_id: z.string().describe('The email ID the attachment belongs to'),
+    blob_id: z.string().describe('The blob ID of the attachment (from list_attachments)'),
+  },
+  'fastmail',
+);
+
+bridgedTool(
+  'mark_as_spam',
+  "Mark an email as spam (moves to Junk and trains filter). MUST use action='preview' first, then 'confirm'.",
+  {
+    email_id: z.string().describe('The email ID to mark as spam'),
+    action: z.enum(['preview', 'confirm']).describe("'preview' first, then 'confirm' after user approval"),
+  },
+  'fastmail',
+);
+
 // Start the stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);

@@ -12,6 +12,7 @@ interface McpServerConfig {
   name: string;
   command: string;
   args?: string[];
+  env?: Record<string, string>;
 }
 
 interface PendingRequest {
@@ -49,6 +50,7 @@ class McpServerProcess {
   private async start(): Promise<void> {
     this.process = spawn(this.config.command, this.config.args || [], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, ...this.config.env },
     });
 
     this.process.stdout!.on('data', (chunk: Buffer) => {
