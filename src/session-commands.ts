@@ -163,7 +163,11 @@ export async function handleSessionCommand(opts: {
     if (text) await deps.sendMessage(text);
     // Close stdin after receiving the final session marker (result: null after a text result)
     // or any result — session commands are single-turn.
-    if (cmdResultReceived && result.status === 'success' && result.result === null) {
+    if (
+      cmdResultReceived &&
+      result.status === 'success' &&
+      result.result === null
+    ) {
       deps.closeStdin();
     }
     if (text) cmdResultReceived = true;
