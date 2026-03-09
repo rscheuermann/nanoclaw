@@ -149,11 +149,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
       // Process MCP bridge requests from this group's IPC directory
       if (deps.mcpBridge) {
-        const requestsDir = path.join(
-          ipcBaseDir,
-          sourceGroup,
-          'mcp_requests',
-        );
+        const requestsDir = path.join(ipcBaseDir, sourceGroup, 'mcp_requests');
         const responsesDir = path.join(
           ipcBaseDir,
           sourceGroup,
@@ -509,7 +505,12 @@ export async function processTaskIpc(
  */
 async function processMcpRequest(
   bridge: McpBridge,
-  data: { requestId: string; server: string; tool: string; args: Record<string, unknown> },
+  data: {
+    requestId: string;
+    server: string;
+    tool: string;
+    args: Record<string, unknown>;
+  },
   responsesDir: string,
   sourceGroup: string,
 ): Promise<void> {
@@ -526,18 +527,33 @@ async function processMcpRequest(
     );
     fs.renameSync(tempFile, responseFile);
     logger.debug(
-      { requestId: data.requestId, server: data.server, tool: data.tool, sourceGroup },
+      {
+        requestId: data.requestId,
+        server: data.server,
+        tool: data.tool,
+        sourceGroup,
+      },
       'MCP bridge request completed',
     );
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     fs.writeFileSync(
       tempFile,
-      JSON.stringify({ requestId: data.requestId, result: null, error: errorMsg }),
+      JSON.stringify({
+        requestId: data.requestId,
+        result: null,
+        error: errorMsg,
+      }),
     );
     fs.renameSync(tempFile, responseFile);
     logger.error(
-      { requestId: data.requestId, server: data.server, tool: data.tool, sourceGroup, err },
+      {
+        requestId: data.requestId,
+        server: data.server,
+        tool: data.tool,
+        sourceGroup,
+        err,
+      },
       'MCP bridge request failed',
     );
   }

@@ -5,6 +5,7 @@ import path from 'path';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  WAMessage,
   WASocket,
   fetchLatestWaWebVersion,
   makeCacheableSignalKeyStore,
@@ -35,15 +36,29 @@ export interface WhatsAppChannelOpts {
   registeredGroups: () => Record<string, RegisteredGroup>;
 }
 
+// Short-lived cache of recent messages for thread reply support
+// Maps message ID → minimal message info needed for quoting
+interface CachedMessage {
+  id: string;
+  remoteJid: string;
+  participant?: string; // sender JID in group messages
+  content: string;
+  fromMe: boolean;
+}
+
+const MESSAGE_CACHE_MAX = 200;
+
 export class WhatsAppChannel implements Channel {
   name = 'whatsapp';
 
   private sock!: WASocket;
   private connected = false;
   private lidToPhoneMap: Record<string, string> = {};
-  private outgoingQueue: Array<{ jid: string; text: string }> = [];
+  private outgoingQueue: Array<{ jid: string; text: string; quotedMessageId?: string }> = [];
   private flushing = false;
   private groupSyncTimerStarted = false;
+  // Cache recent messages so we can quote them in thread replies
+  private messageCache = new Map<string, CachedMessage>();
 
   private opts: WhatsAppChannelOpts;
 
@@ -238,8 +253,33 @@ export class WhatsAppChannel implements Channel {
               ? fromMe
               : content.startsWith(`${ASSISTANT_NAME}:`);
 
+            const messageId = msg.key.id || '';
+
+            // Cache this message for potential thread replies
+            if (messageId) {
+              if (this.messageCache.size >= MESSAGE_CACHE_MAX) {
+                // Evict oldest entry
+                const firstKey = this.messageCache.keys().next().value;
+                if (firstKey) this.messageCache.delete(firstKey);
+              }
+              this.messageCache.set(messageId, {
+                id: messageId,
+                remoteJid: chatJid,
+                participant: msg.key.participant || undefined,
+                content,
+                fromMe,
+              });
+            }
+
+            // Detect if this message is a thread reply (quotes another message)
+            const contextInfo =
+              normalized.extendedTextMessage?.contextInfo ||
+              normalized.imageMessage?.contextInfo ||
+              normalized.videoMessage?.contextInfo;
+            const threadMessageId = contextInfo?.stanzaId || undefined;
+
             this.opts.onMessage(chatJid, {
-              id: msg.key.id || '',
+              id: messageId,
               chat_jid: chatJid,
               sender,
               sender_name: senderName,
@@ -247,6 +287,7 @@ export class WhatsAppChannel implements Channel {
               timestamp,
               is_from_me: fromMe,
               is_bot_message: isBotMessage,
+              thread_message_id: threadMessageId,
             });
           }
         } catch (err) {
@@ -259,7 +300,7 @@ export class WhatsAppChannel implements Channel {
     });
   }
 
-  async sendMessage(jid: string, text: string): Promise<void> {
+  async sendMessage(jid: string, text: string, quotedMessageId?: string): Promise<void> {
     // Prefix bot messages with assistant name so users know who's speaking.
     // On a shared number, prefix is also needed in DMs (including self-chat)
     // to distinguish bot output from user messages.
@@ -269,7 +310,7 @@ export class WhatsAppChannel implements Channel {
       : `${ASSISTANT_NAME}: ${text}`;
 
     if (!this.connected) {
-      this.outgoingQueue.push({ jid, text: prefixed });
+      this.outgoingQueue.push({ jid, text: prefixed, quotedMessageId });
       logger.info(
         { jid, length: prefixed.length, queueSize: this.outgoingQueue.length },
         'WA disconnected, message queued',
@@ -277,16 +318,40 @@ export class WhatsAppChannel implements Channel {
       return;
     }
     try {
-      await this.sock.sendMessage(jid, { text: prefixed });
-      logger.info({ jid, length: prefixed.length }, 'Message sent');
+      await this.sendMessageInternal(jid, prefixed, quotedMessageId);
+      logger.info({ jid, length: prefixed.length, quoted: !!quotedMessageId }, 'Message sent');
     } catch (err) {
       // If send fails, queue it for retry on reconnect
-      this.outgoingQueue.push({ jid, text: prefixed });
+      this.outgoingQueue.push({ jid, text: prefixed, quotedMessageId });
       logger.warn(
         { jid, err, queueSize: this.outgoingQueue.length },
         'Failed to send, message queued',
       );
     }
+  }
+
+  private async sendMessageInternal(jid: string, text: string, quotedMessageId?: string): Promise<void> {
+    if (quotedMessageId) {
+      const cached = this.messageCache.get(quotedMessageId);
+      if (cached) {
+        // Build a minimal WAMessage for Baileys to quote
+        const quotedMsg: WAMessage = {
+          key: {
+            remoteJid: cached.remoteJid,
+            id: cached.id,
+            fromMe: cached.fromMe,
+            participant: cached.participant,
+          },
+          message: { conversation: cached.content },
+          messageTimestamp: 0,
+        };
+        await this.sock.sendMessage(jid, { text }, { quoted: quotedMsg });
+        return;
+      }
+      // Cached message not found — fall through to plain send
+      logger.debug({ quotedMessageId }, 'Quoted message not in cache, sending without quote');
+    }
+    await this.sock.sendMessage(jid, { text });
   }
 
   isConnected(): boolean {
@@ -396,7 +461,7 @@ export class WhatsAppChannel implements Channel {
       while (this.outgoingQueue.length > 0) {
         const item = this.outgoingQueue.shift()!;
         // Send directly — queued items are already prefixed by sendMessage
-        await this.sock.sendMessage(item.jid, { text: item.text });
+        await this.sendMessageInternal(item.jid, item.text, item.quotedMessageId);
         logger.info(
           { jid: item.jid, length: item.text.length },
           'Queued message sent',
