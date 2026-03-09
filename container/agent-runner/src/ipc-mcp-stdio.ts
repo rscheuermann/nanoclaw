@@ -14,6 +14,8 @@ import { CronExpressionParser } from 'cron-parser';
 const IPC_DIR = '/workspace/ipc';
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
 const TASKS_DIR = path.join(IPC_DIR, 'tasks');
+const MCP_REQUESTS_DIR = path.join(IPC_DIR, 'mcp_requests');
+const MCP_RESPONSES_DIR = path.join(IPC_DIR, 'mcp_responses');
 
 // Context from environment variables (set by the agent runner)
 const chatJid = process.env.NANOCLAW_CHAT_JID!;
@@ -331,6 +333,222 @@ Use available_groups.json to find the JID for a group. The folder name must be c
       content: [{ type: 'text' as const, text: `Group "${args.name}" registered. It will start receiving messages immediately.` }],
     };
   },
+);
+
+// --- MCP Bridge: proxy tools to host-side macOS MCP servers ---
+
+const MCP_BRIDGE_POLL_INTERVAL = 100; // ms
+const MCP_BRIDGE_TIMEOUT = 30_000; // ms
+
+async function callHostMcp(
+  serverName: string,
+  tool: string,
+  args: Record<string, unknown>,
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+  fs.mkdirSync(MCP_REQUESTS_DIR, { recursive: true });
+  fs.mkdirSync(MCP_RESPONSES_DIR, { recursive: true });
+
+  const requestId = `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const request = { requestId, server: serverName, tool, args, timestamp: new Date().toISOString() };
+
+  // Atomic write request
+  const reqPath = path.join(MCP_REQUESTS_DIR, `${requestId}.json`);
+  const tmpPath = `${reqPath}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(request));
+  fs.renameSync(tmpPath, reqPath);
+
+  // Poll for response
+  const respPath = path.join(MCP_RESPONSES_DIR, `${requestId}.json`);
+  const deadline = Date.now() + MCP_BRIDGE_TIMEOUT;
+
+  while (Date.now() < deadline) {
+    if (fs.existsSync(respPath)) {
+      const data = JSON.parse(fs.readFileSync(respPath, 'utf-8'));
+      fs.unlinkSync(respPath);
+
+      if (data.error) {
+        return { content: [{ type: 'text', text: `Error: ${data.error}` }] };
+      }
+
+      // MCP tool results have a content array
+      const result = data.result;
+      if (result && result.content) {
+        return { content: result.content };
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    }
+    await new Promise((resolve) => setTimeout(resolve, MCP_BRIDGE_POLL_INTERVAL));
+  }
+
+  return { content: [{ type: 'text', text: 'Error: MCP bridge request timed out' }] };
+}
+
+// Helper to register a bridged tool with minimal boilerplate
+function bridgedTool(
+  name: string,
+  description: string,
+  schema: Record<string, z.ZodType>,
+  serverName: string,
+  remoteTool?: string,
+) {
+  server.tool(name, description, schema, async (args: Record<string, unknown>) => {
+    return callHostMcp(serverName, remoteTool || name, args);
+  });
+}
+
+// --- Apple Reminders tools ---
+
+bridgedTool(
+  'list_reminder_lists',
+  'Get all reminder lists from Apple Reminders',
+  {},
+  'apple-reminders',
+);
+
+bridgedTool(
+  'create_reminder_list',
+  'Create a new reminder list in Apple Reminders',
+  { name: z.string().describe('Name of the new reminder list') },
+  'apple-reminders',
+);
+
+bridgedTool(
+  'list_today_reminders',
+  'Get all incomplete reminders that are due today or past due',
+  {},
+  'apple-reminders',
+);
+
+bridgedTool(
+  'list_reminders',
+  'Get reminders from a specific list or all lists. By default returns only incomplete reminders.',
+  {
+    list_name: z.string().optional().describe('Name of the reminder list (optional)'),
+    completed: z.boolean().optional().describe('Filter by completion status (default: false)'),
+  },
+  'apple-reminders',
+);
+
+bridgedTool(
+  'create_reminder',
+  'Create a new reminder in Apple Reminders',
+  {
+    title: z.string().describe('Title of the reminder'),
+    list_name: z.string().optional().describe("List name (defaults to 'Reminders')"),
+    notes: z.string().optional().describe('Additional notes'),
+    due_date: z.string().optional().describe("Due date in ISO 8601 (e.g. '2025-11-15T10:00:00Z') or date-only (e.g. '2025-11-15')"),
+  },
+  'apple-reminders',
+);
+
+bridgedTool(
+  'complete_reminder',
+  'Mark a reminder as completed',
+  { reminder_id: z.string().describe('ID of the reminder to complete') },
+  'apple-reminders',
+);
+
+bridgedTool(
+  'delete_reminder',
+  'Delete a reminder',
+  { reminder_id: z.string().describe('ID of the reminder to delete') },
+  'apple-reminders',
+);
+
+bridgedTool(
+  'update_reminder',
+  "Update an existing reminder's properties",
+  {
+    reminder_id: z.string().describe('ID of the reminder to update'),
+    title: z.string().optional().describe('New title'),
+    notes: z.string().optional().describe('New notes'),
+    due_date: z.string().optional().describe('New due date (ISO 8601 or date-only, empty string to clear)'),
+    priority: z.string().optional().describe('Priority 0-9 (0=none, 1-4=high, 5=medium, 6-9=low)'),
+  },
+  'apple-reminders',
+);
+
+// --- Apple Calendar tools ---
+
+bridgedTool(
+  'calendar_list_events',
+  'List calendar events within a date range',
+  {
+    startDate: z.string().describe('Start date (YYYY-MM-DD)'),
+    endDate: z.string().describe('End date (YYYY-MM-DD)'),
+  },
+  'calendar',
+);
+
+bridgedTool(
+  'calendar_list_calendars',
+  'List all available calendars',
+  {},
+  'calendar',
+);
+
+bridgedTool(
+  'calendar_create_event',
+  'Create a new calendar event',
+  {
+    title: z.string().describe('Event title'),
+    startDate: z.string().describe('Start date/time (YYYY-MM-DD HH:MM or YYYY-MM-DD)'),
+    endDate: z.string().describe('End date/time (YYYY-MM-DD HH:MM or YYYY-MM-DD)'),
+    calendarId: z.string().optional().describe('Calendar ID (uses default if not specified)'),
+    location: z.string().optional().describe('Event location'),
+    notes: z.string().optional().describe('Event notes/description'),
+    allDay: z.boolean().optional().describe('All-day event (default: false)'),
+    recurrenceFrequency: z.string().optional().describe('Recurrence: daily, weekly, monthly, yearly'),
+    recurrenceInterval: z.number().optional().describe('Repeat every N intervals (default: 1)'),
+    recurrenceEndDate: z.string().optional().describe('End date for recurrence (YYYY-MM-DD)'),
+    recurrenceCount: z.number().optional().describe('Maximum number of occurrences'),
+  },
+  'calendar',
+);
+
+bridgedTool(
+  'calendar_get_event',
+  'Get detailed information about a specific event',
+  { eventId: z.string().describe('Event identifier') },
+  'calendar',
+);
+
+bridgedTool(
+  'calendar_update_event',
+  'Update an existing calendar event',
+  {
+    eventId: z.string().describe('Event identifier'),
+    title: z.string().optional().describe('Event title'),
+    startDate: z.string().optional().describe('Start date/time (YYYY-MM-DD HH:MM or YYYY-MM-DD)'),
+    endDate: z.string().optional().describe('End date/time (YYYY-MM-DD HH:MM or YYYY-MM-DD)'),
+    location: z.string().optional().describe('Event location'),
+    notes: z.string().optional().describe('Event notes/description'),
+    allDay: z.boolean().optional().describe('All-day event'),
+    recurrenceFrequency: z.string().optional().describe('Recurrence: daily, weekly, monthly, yearly'),
+    recurrenceInterval: z.number().optional().describe('Repeat every N intervals'),
+    recurrenceEndDate: z.string().optional().describe('End date for recurrence (YYYY-MM-DD)'),
+    recurrenceCount: z.number().optional().describe('Maximum number of occurrences'),
+  },
+  'calendar',
+);
+
+bridgedTool(
+  'calendar_delete_event',
+  'Delete a calendar event',
+  { eventId: z.string().describe('Event identifier') },
+  'calendar',
+);
+
+bridgedTool(
+  'calendar_search_events',
+  'Search for events by title or content',
+  {
+    query: z.string().describe('Search query to match against event titles and notes'),
+    startDate: z.string().optional().describe('Start date for search range (YYYY-MM-DD)'),
+    endDate: z.string().optional().describe('End date for search range (YYYY-MM-DD)'),
+    calendarId: z.string().optional().describe('Calendar ID to search within'),
+  },
+  'calendar',
 );
 
 // Start the stdio transport

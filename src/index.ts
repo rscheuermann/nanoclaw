@@ -44,6 +44,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
+import { McpBridge } from './mcp-bridge.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import {
   isSenderAllowed,
@@ -569,6 +570,23 @@ async function main(): Promise<void> {
       if (text) await channel.sendMessage(jid, text);
     },
   });
+  // Initialize MCP bridge for host-side MCP servers (macOS-native)
+  const mcpBridge = new McpBridge();
+  const remindersPath = path.join(
+    process.env.HOME || '',
+    'Code/Foundation/mcp-servers/apple-reminders-mcp/.build/release/apple-reminders-mcp',
+  );
+  const calendarPath = path.join(
+    process.env.HOME || '',
+    'Code/Foundation/mcp-servers/calendar-mcp/.build/release/calendar-mcp',
+  );
+  if (fs.existsSync(remindersPath)) {
+    mcpBridge.addServer({ name: 'apple-reminders', command: remindersPath });
+  }
+  if (fs.existsSync(calendarPath)) {
+    mcpBridge.addServer({ name: 'calendar', command: calendarPath });
+  }
+
   startIpcWatcher({
     sendMessage: (jid, text) => {
       const channel = findChannel(channels, jid);
@@ -587,6 +605,7 @@ async function main(): Promise<void> {
     getAvailableGroups,
     writeGroupsSnapshot: (gf, im, ag, rj) =>
       writeGroupsSnapshot(gf, im, ag, rj),
+    mcpBridge,
   });
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
