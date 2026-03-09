@@ -5,7 +5,10 @@ import { logger } from './logger.js';
  * Extract a session slash command from a message, stripping the trigger prefix if present.
  * Returns the slash command (e.g., '/compact') or null if not a session command.
  */
-export function extractSessionCommand(content: string, triggerPattern: RegExp): string | null {
+export function extractSessionCommand(
+  content: string,
+  triggerPattern: RegExp,
+): string | null {
   let text = content.trim();
   text = text.replace(triggerPattern, '').trim();
   if (text === '/compact') return '/compact';
@@ -67,16 +70,33 @@ export async function handleSessionCommand(opts: {
   adminJids: string[];
   deps: SessionCommandDeps;
 }): Promise<{ handled: false } | { handled: true; success: boolean }> {
-  const { missedMessages, isMainGroup, groupName, triggerPattern, timezone, adminJids, deps } = opts;
+  const {
+    missedMessages,
+    isMainGroup,
+    groupName,
+    triggerPattern,
+    timezone,
+    adminJids,
+    deps,
+  } = opts;
 
   const cmdMsg = missedMessages.find(
     (m) => extractSessionCommand(m.content, triggerPattern) !== null,
   );
-  const command = cmdMsg ? extractSessionCommand(cmdMsg.content, triggerPattern) : null;
+  const command = cmdMsg
+    ? extractSessionCommand(cmdMsg.content, triggerPattern)
+    : null;
 
   if (!command || !cmdMsg) return { handled: false };
 
-  if (!isSessionCommandAllowed(isMainGroup, cmdMsg.is_from_me === true, cmdMsg.sender, adminJids)) {
+  if (
+    !isSessionCommandAllowed(
+      isMainGroup,
+      cmdMsg.is_from_me === true,
+      cmdMsg.sender,
+      adminJids,
+    )
+  ) {
     // DENIED: send denial if the sender would normally be allowed to interact,
     // then silently consume the command by advancing the cursor past it.
     // Trade-off: other messages in the same batch are also consumed (cursor is
@@ -115,8 +135,13 @@ export async function handleSessionCommand(opts: {
     });
 
     if (preResult === 'error' || hadPreError) {
-      logger.warn({ group: groupName }, 'Pre-compact processing failed, aborting session command');
-      await deps.sendMessage(`Failed to process messages before ${command}. Try again.`);
+      logger.warn(
+        { group: groupName },
+        'Pre-compact processing failed, aborting session command',
+      );
+      await deps.sendMessage(
+        `Failed to process messages before ${command}. Try again.`,
+      );
       if (preOutputSent) {
         // Output was already sent — don't retry or it will duplicate.
         // Advance cursor past pre-compact messages, leave command pending.
