@@ -156,10 +156,17 @@ export async function handleSessionCommand(opts: {
   await deps.setTyping(true);
 
   let hadCmdError = false;
+  let cmdResultReceived = false;
   const cmdOutput = await deps.runAgent(command, async (result) => {
     if (result.status === 'error') hadCmdError = true;
     const text = resultToText(result.result);
     if (text) await deps.sendMessage(text);
+    // Close stdin after receiving the final session marker (result: null after a text result)
+    // or any result — session commands are single-turn.
+    if (cmdResultReceived && result.status === 'success' && result.result === null) {
+      deps.closeStdin();
+    }
+    if (text) cmdResultReceived = true;
   });
 
   // Advance cursor to the command — messages AFTER it remain pending for next poll.
