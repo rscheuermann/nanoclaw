@@ -54,7 +54,11 @@ export class WhatsAppChannel implements Channel {
   private sock!: WASocket;
   private connected = false;
   private lidToPhoneMap: Record<string, string> = {};
-  private outgoingQueue: Array<{ jid: string; text: string; quotedMessageId?: string }> = [];
+  private outgoingQueue: Array<{
+    jid: string;
+    text: string;
+    quotedMessageId?: string;
+  }> = [];
   private flushing = false;
   private groupSyncTimerStarted = false;
   // Cache recent messages so we can quote them in thread replies
@@ -300,7 +304,11 @@ export class WhatsAppChannel implements Channel {
     });
   }
 
-  async sendMessage(jid: string, text: string, quotedMessageId?: string): Promise<void> {
+  async sendMessage(
+    jid: string,
+    text: string,
+    quotedMessageId?: string,
+  ): Promise<void> {
     // Prefix bot messages with assistant name so users know who's speaking.
     // On a shared number, prefix is also needed in DMs (including self-chat)
     // to distinguish bot output from user messages.
@@ -319,7 +327,10 @@ export class WhatsAppChannel implements Channel {
     }
     try {
       await this.sendMessageInternal(jid, prefixed, quotedMessageId);
-      logger.info({ jid, length: prefixed.length, quoted: !!quotedMessageId }, 'Message sent');
+      logger.info(
+        { jid, length: prefixed.length, quoted: !!quotedMessageId },
+        'Message sent',
+      );
     } catch (err) {
       // If send fails, queue it for retry on reconnect
       this.outgoingQueue.push({ jid, text: prefixed, quotedMessageId });
@@ -330,7 +341,11 @@ export class WhatsAppChannel implements Channel {
     }
   }
 
-  private async sendMessageInternal(jid: string, text: string, quotedMessageId?: string): Promise<void> {
+  private async sendMessageInternal(
+    jid: string,
+    text: string,
+    quotedMessageId?: string,
+  ): Promise<void> {
     if (quotedMessageId) {
       const cached = this.messageCache.get(quotedMessageId);
       if (cached) {
@@ -349,7 +364,10 @@ export class WhatsAppChannel implements Channel {
         return;
       }
       // Cached message not found — fall through to plain send
-      logger.debug({ quotedMessageId }, 'Quoted message not in cache, sending without quote');
+      logger.debug(
+        { quotedMessageId },
+        'Quoted message not in cache, sending without quote',
+      );
     }
     await this.sock.sendMessage(jid, { text });
   }
@@ -461,7 +479,11 @@ export class WhatsAppChannel implements Channel {
       while (this.outgoingQueue.length > 0) {
         const item = this.outgoingQueue.shift()!;
         // Send directly — queued items are already prefixed by sendMessage
-        await this.sendMessageInternal(item.jid, item.text, item.quotedMessageId);
+        await this.sendMessageInternal(
+          item.jid,
+          item.text,
+          item.quotedMessageId,
+        );
         logger.info(
           { jid: item.jid, length: item.text.length },
           'Queued message sent',
