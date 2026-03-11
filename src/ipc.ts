@@ -5,7 +5,13 @@ import { CronExpressionParser } from 'cron-parser';
 
 import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
 import { AvailableGroup } from './container-runner.js';
-import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
+import {
+  createTask,
+  deleteTask,
+  getAllTasks,
+  getTaskById,
+  updateTask,
+} from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import { McpBridge } from './mcp-bridge.js';
@@ -23,10 +29,59 @@ export interface IpcDeps {
     availableGroups: AvailableGroup[],
     registeredJids: Set<string>,
   ) => void;
+  writeTasksSnapshot: (
+    groupFolder: string,
+    isMain: boolean,
+    tasks: Array<{
+      id: string;
+      groupFolder: string;
+      prompt: string;
+      schedule_type: string;
+      schedule_value: string;
+      status: string;
+      next_run: string | null;
+    }>,
+  ) => void;
   mcpBridge?: McpBridge;
 }
 
 let ipcWatcherRunning = false;
+
+function refreshTaskSnapshots(deps: IpcDeps): void {
+  const ipcBaseDir = path.join(DATA_DIR, 'ipc');
+  const registeredGroups = deps.registeredGroups();
+  const tasks = getAllTasks().map((t) => ({
+    id: t.id,
+    groupFolder: t.group_folder,
+    prompt: t.prompt,
+    schedule_type: t.schedule_type,
+    schedule_value: t.schedule_value,
+    status: t.status,
+    next_run: t.next_run,
+  }));
+
+  // Refresh snapshots for all groups with IPC directories
+  let groupFolders: string[];
+  try {
+    groupFolders = fs.readdirSync(ipcBaseDir).filter((f) => {
+      try {
+        return fs.statSync(path.join(ipcBaseDir, f)).isDirectory() && f !== 'errors';
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return;
+  }
+
+  for (const folder of groupFolders) {
+    // Determine if this folder is the main group
+    const isMain = Object.values(registeredGroups).some(
+      (g) => g.folder === folder && g.isMain,
+    );
+    deps.writeTasksSnapshot(folder, isMain, tasks);
+  }
+}
 
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
@@ -315,6 +370,7 @@ export async function processTaskIpc(
           { taskId, sourceGroup, targetFolder, contextMode },
           'Task created via IPC',
         );
+        refreshTaskSnapshots(deps);
       }
       break;
 
@@ -327,6 +383,7 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task paused via IPC',
           );
+          refreshTaskSnapshots(deps);
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
@@ -345,6 +402,7 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task resumed via IPC',
           );
+          refreshTaskSnapshots(deps);
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
@@ -363,6 +421,7 @@ export async function processTaskIpc(
             { taskId: data.taskId, sourceGroup },
             'Task cancelled via IPC',
           );
+          refreshTaskSnapshots(deps);
         } else {
           logger.warn(
             { taskId: data.taskId, sourceGroup },
@@ -433,6 +492,7 @@ export async function processTaskIpc(
           { taskId: data.taskId, sourceGroup, updates },
           'Task updated via IPC',
         );
+        refreshTaskSnapshots(deps);
       }
       break;
 
