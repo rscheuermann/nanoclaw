@@ -65,7 +65,9 @@ function refreshTaskSnapshots(deps: IpcDeps): void {
   try {
     groupFolders = fs.readdirSync(ipcBaseDir).filter((f) => {
       try {
-        return fs.statSync(path.join(ipcBaseDir, f)).isDirectory() && f !== 'errors';
+        return (
+          fs.statSync(path.join(ipcBaseDir, f)).isDirectory() && f !== 'errors'
+        );
       } catch {
         return false;
       }
