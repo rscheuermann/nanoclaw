@@ -18,6 +18,7 @@ groups/main/*
 # Secrets
 *.keys.json
 .env
+.mcp.json
 
 # Temp files
 .tmp-*
@@ -31,5 +32,9 @@ groups/main/*
 
 # Skills system (local per-installation state)
 .nanoclaw/
+
+# Container skills — only agent-browser is tracked (generic project skill)
+container/skills/*
+!container/skills/agent-browser/
 
 agents-sdk-docs

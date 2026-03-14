@@ -778,27 +778,37 @@ async function main(): Promise<void> {
   });
   // Initialize MCP bridge for host-side MCP servers (macOS-native)
   const mcpBridge = new McpBridge();
-  const remindersPath = path.join(
-    process.env.HOME || '',
-    'Code/Foundation/mcp-servers/apple-reminders-mcp/.build/x86_64-apple-macosx/release/apple-reminders-mcp',
-  );
-  const calendarPath = path.join(
-    process.env.HOME || '',
-    'Code/Foundation/mcp-servers/calendar-mcp/.build/x86_64-apple-macosx/release/calendar-mcp',
-  );
-  if (fs.existsSync(remindersPath)) {
-    mcpBridge.addServer({ name: 'apple-reminders', command: remindersPath });
+  const mcpEnv = readEnvFile([
+    'APPLE_REMINDERS_MCP_PATH',
+    'CALENDAR_MCP_PATH',
+    'FASTMAIL_MCP_PATH',
+    'FASTMAIL_API_TOKEN',
+    'PLEX_MCP_COMMAND',
+    'PLEX_URL',
+    'PLEX_TOKEN',
+  ]);
+  if (mcpEnv.APPLE_REMINDERS_MCP_PATH && fs.existsSync(mcpEnv.APPLE_REMINDERS_MCP_PATH)) {
+    mcpBridge.addServer({ name: 'apple-reminders', command: mcpEnv.APPLE_REMINDERS_MCP_PATH });
   }
-  if (fs.existsSync(calendarPath)) {
-    mcpBridge.addServer({ name: 'calendar', command: calendarPath });
+  if (mcpEnv.CALENDAR_MCP_PATH && fs.existsSync(mcpEnv.CALENDAR_MCP_PATH)) {
+    mcpBridge.addServer({ name: 'calendar', command: mcpEnv.CALENDAR_MCP_PATH });
   }
-  const fastmailEnv = readEnvFile(['FASTMAIL_API_TOKEN']);
-  const fastmailToken = fastmailEnv.FASTMAIL_API_TOKEN;
-  if (fastmailToken) {
+  if (mcpEnv.FASTMAIL_MCP_PATH && mcpEnv.FASTMAIL_API_TOKEN) {
     mcpBridge.addServer({
       name: 'fastmail',
-      command: '/usr/local/bin/fastmail-mcp-server',
-      env: { FASTMAIL_API_TOKEN: fastmailToken },
+      command: mcpEnv.FASTMAIL_MCP_PATH,
+      env: { FASTMAIL_API_TOKEN: mcpEnv.FASTMAIL_API_TOKEN },
+    });
+  }
+  if (mcpEnv.PLEX_MCP_COMMAND && mcpEnv.PLEX_URL && mcpEnv.PLEX_TOKEN) {
+    mcpBridge.addServer({
+      name: 'plex',
+      command: mcpEnv.PLEX_MCP_COMMAND,
+      args: ['plex-mcp-server', '--transport', 'stdio'],
+      env: {
+        PLEX_URL: mcpEnv.PLEX_URL,
+        PLEX_TOKEN: mcpEnv.PLEX_TOKEN,
+      },
     });
   }
 
