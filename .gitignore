@@ -8,6 +8,11 @@ dist/
 store/
 data/
 logs/
+*.db
+
+# Syncthing
+.stfolder/
+.stignore
 
 # Groups - only track base structure and specific CLAUDE.md files
 groups/*
