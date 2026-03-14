@@ -787,11 +787,20 @@ async function main(): Promise<void> {
     'PLEX_URL',
     'PLEX_TOKEN',
   ]);
-  if (mcpEnv.APPLE_REMINDERS_MCP_PATH && fs.existsSync(mcpEnv.APPLE_REMINDERS_MCP_PATH)) {
-    mcpBridge.addServer({ name: 'apple-reminders', command: mcpEnv.APPLE_REMINDERS_MCP_PATH });
+  if (
+    mcpEnv.APPLE_REMINDERS_MCP_PATH &&
+    fs.existsSync(mcpEnv.APPLE_REMINDERS_MCP_PATH)
+  ) {
+    mcpBridge.addServer({
+      name: 'apple-reminders',
+      command: mcpEnv.APPLE_REMINDERS_MCP_PATH,
+    });
   }
   if (mcpEnv.CALENDAR_MCP_PATH && fs.existsSync(mcpEnv.CALENDAR_MCP_PATH)) {
-    mcpBridge.addServer({ name: 'calendar', command: mcpEnv.CALENDAR_MCP_PATH });
+    mcpBridge.addServer({
+      name: 'calendar',
+      command: mcpEnv.CALENDAR_MCP_PATH,
+    });
   }
   if (mcpEnv.FASTMAIL_MCP_PATH && mcpEnv.FASTMAIL_API_TOKEN) {
     mcpBridge.addServer({
